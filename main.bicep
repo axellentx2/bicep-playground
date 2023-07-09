@@ -1,9 +1,22 @@
-@description('My first bicp storage account')
+param location string = 'westeurope'
+param storageAccountName string = 'toylaunch${uniqueString(resourceGroup().id)}'
+param appServiceAppName string = 'toylaunch${uniqueString(resourceGroup().id)}'
+
+@allowed([
+  'nonprod'
+  'prod'
+])
+param environmentType string
+
+var appServicePlanName = 'toy-product-launch-plan'
+var storageAccountSkuName = environmentType == 'prod' ? 'Standard_GRS' : 'Standard_LRS'
+var appServicePlanSkuName = environmentType == 'prod' ? 'P2v3' : 'F1'
+
 resource storageAccount 'Microsoft.Storage/storageAccounts@2022-09-01' = {
-  name: 'toylaunchstorageavdoorn'
-  location: 'westeurope'
+  name: storageAccountName
+  location: location
   sku: {
-    name: 'Standard_LRS'
+    name: storageAccountSkuName
   }
   kind: 'StorageV2'
   properties: {
@@ -12,16 +25,16 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2022-09-01' = {
 }
 
 resource appServicePlan 'Microsoft.Web/serverfarms@2022-09-01' = {
-  name: 'toy-product-launch-plan-starter-avdoorn'
-  location: 'westeurope'
+  name: appServicePlanName
+  location: location
   sku: {
-    name: 'F1'
+    name: appServicePlanSkuName
   }
 }
 
 resource appServiceApp 'Microsoft.Web/sites@2022-09-01' = {
-  name: 'toy-product-launch-avdoorn'
-  location: 'westeurope'
+  name: appServiceAppName
+  location: location
   properties: {
     serverFarmId: appServicePlan.id
     httpsOnly: true
