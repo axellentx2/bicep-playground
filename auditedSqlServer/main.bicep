@@ -1,5 +1,16 @@
-@description('The Azure region into which the resources should be deployed.')
-param location string = resourceGroup().location
+@description('The Azure regions into which the resources should be deployed.')
+param locations array = [
+  'westeurope'
+  'eastus2'
+  'eastasia'
+]
+
+@description('The name of the environment. This must be Development or Production.')
+@allowed([
+  'Development'
+  'Production'
+])
+param environmentName string = 'Development'
 
 @description('The administrator login username for the SQL server.')
 @secure()
@@ -9,58 +20,53 @@ param sqlServerAdministratorLogin string
 @secure()
 param sqlServerAdministratorLoginPassword string
 
-@description('The name and tier of the SQL database SKU.')
-param sqlDatabaseSku object = {
-  name: 'Standard'
-  tier: 'Standard'
-}
+@description('The IP address range for all virtual networks to use.')
+param virtualNetworkAddressPrefix string = '10.10.0.0/16'
 
-@description('The name of the environment. This must be Development or Production.')
-@allowed([
-  'Development'
-  'Production'
-])
-param environmentName string = 'Development'
+@description('The name and IP address range for each subnet in the virtual networks.')
+param subnets array = [
+  {
+    name: 'frontend'
+    ipAddressRange: '10.10.5.0/24'
+  }
+  {
+    name: 'backend'
+    ipAddressRange: '10.10.10.0/24'
+  }
+]
 
-@description('The name of the audit storage account SKU.')
-param auditStorageAccountSkuName string = 'Standard_LRS'
+var subnetProperties = [for subnet in subnets: {
+  name: subnet.name
+  properties: {
+    addressPrefix: subnet.ipAddressRange
+  }
+}]
 
-var sqlServerName = 'teddy${location}${uniqueString(resourceGroup().id)}'
-var sqlDatabaseName = 'TeddyBear'
-var auditingEnabled = environmentName == 'Production'
-var auditStorageAccountName = take('bearaudit${location}${uniqueString(resourceGroup().id)}', 24)
+module databases 'modules/database.bicep' = [for location in locations: {
+  name: 'database-${location}'
+  params: {
+    location: location
+    environmentName: 'Production'
+    sqlServerAdministratorLogin: sqlServerAdministratorLogin
+    sqlServerAdministratorLoginPassword: sqlServerAdministratorLoginPassword
+  }
+}]
 
-resource sqlServer 'Microsoft.Sql/servers@2022-11-01-preview' = {
-  name: sqlServerName
+resource virtualNetworks 'Microsoft.Network/virtualNetworks@2023-02-01' = [for location in locations: {
+  name: 'teddybear-${location}'
   location: location
   properties: {
-    administratorLogin: sqlServerAdministratorLogin
-    administratorLoginPassword: sqlServerAdministratorLoginPassword
+    addressSpace: {
+      addressPrefixes: [
+        virtualNetworkAddressPrefix
+      ]
+    }
+    subnets: subnetProperties
   }
-}
+}]
 
-resource sqlDatabase 'Microsoft.Sql/servers/databases@2022-11-01-preview' = {
-  parent: sqlServer
-  name: sqlDatabaseName
-  location: location
-  sku: sqlDatabaseSku
-}
-
-resource auditStorageAccount 'Microsoft.Storage/storageAccounts@2022-09-01' = if (auditingEnabled) {
-  name: auditStorageAccountName
-  location: location
-  sku: {
-    name: auditStorageAccountSkuName
-  }
-  kind: 'StorageV2'
-}
-
-resource sqlServerAudit 'Microsoft.Sql/servers/auditingSettings@2022-11-01-preview' = if (auditingEnabled) {
-  parent: sqlServer
-  name: 'default'
-  properties: {
-    state: 'Enabled'
-    storageEndpoint: auditStorageAccount.properties.primaryEndpoints.blob
-    storageAccountAccessKey: listKeys(auditStorageAccount.id, auditStorageAccount.apiVersion).keys[0].value
-  }
-}
+output serverInfo array = [for i in range(0, length(locations)) : {
+  name: databases[i].outputs.serverName
+  location: databases[i].outputs.location
+  FullyQualifiedDomainName: databases[i].outputs.serverFullyQualifiedDomainName
+}]
